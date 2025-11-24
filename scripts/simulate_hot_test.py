@@ -76,9 +76,15 @@ def seed_indexer():
         raise RuntimeError(f"Failed to index: {resp.text}")
 
 def create_temp_codebase():
-    """Creates a temporary directory with the fake codebase."""
+    """Creates a temporary directory with the fake codebase AND initializes Git."""
     temp_dir = tempfile.mkdtemp()
     print(f"[*] Created temporary codebase at: {temp_dir}")
+
+    # Initialize Git
+    subprocess.run(["git", "init"], cwd=temp_dir, check=True, stdout=subprocess.DEVNULL)
+    # Configure git user for commits
+    subprocess.run(["git", "config", "user.email", "agent@git-ai.test"], cwd=temp_dir, check=True)
+    subprocess.run(["git", "config", "user.name", "Git AI Agent"], cwd=temp_dir, check=True)
 
     # Create structure
     os.makedirs(os.path.join(temp_dir, "src"), exist_ok=True)
@@ -93,10 +99,14 @@ def create_temp_codebase():
         with open(os.path.join(temp_dir, path), "w") as f:
             f.write(content)
 
+    # Initial commit
+    subprocess.run(["git", "add", "."], cwd=temp_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "Initial commit"], cwd=temp_dir, check=True)
+
     return temp_dir
 
 def simulate_agent_workflow():
-    # Setup temporary filesystem
+    # Setup temporary filesystem with Git
     temp_root = create_temp_codebase()
 
     try:
@@ -127,12 +137,10 @@ def simulate_agent_workflow():
         # 3. Generate Patch (Mocking LLM)
         print(f"[3] Agent 'Thinking': Generating JSON Patch...")
 
-        # Mock LLM Output based on context found (src/auth.py)
-        # We want to change ValueError to PermissionError for demo
         patch = [
             {
                 "op": "replace",
-                "path": "/src~1auth.py", # Note escaping
+                "path": "/src~1auth.py",
                 "value": "def login(user, password):\n    if not password:\n        raise PermissionError('Access Denied')\n    print('Logged in')"
             }
         ]
@@ -141,25 +149,24 @@ def simulate_agent_workflow():
         task = CodeChangeTaskFactory.transition_to_patch_generated(task, patch)
         print(f"    -> State: {type(task).__name__}")
 
-        # 4. Apply Commit (Filesystem Mode)
-        print(f"[4] Agent 'Acting': Applying Patch to Filesystem ({temp_root})...")
+        # 4. Apply Commit (Filesystem + Git)
+        print(f"[4] Agent 'Acting': Applying Patch & Committing to Git ({temp_root})...")
 
-        # Using root_dir argument for the new Scalable Tool
-        result = structured_commit_tool(task.patch, root_dir=temp_root)
+        commit_msg = "fix: improve login error handling"
+        result = structured_commit_tool(task.patch, root_dir=temp_root, commit_message=commit_msg)
 
         if "error" in result:
-            print(f"    [!] Error applying patch: {result['error']}")
+            print(f"    [!] Error: {result['error']}")
             return
 
-        print("    -> Patch Applied Successfully.")
+        print("    -> Patch Applied.")
+        if "commit_hash" in result:
+             print(f"    -> Git Commit Successful: {result['commit_hash']}")
+        else:
+             print(f"    -> [!] Git Commit Failed: {result.get('commit_status')}")
 
-        # Verify file content on disk
-        with open(os.path.join(temp_root, "src/auth.py"), "r") as f:
-            new_content = f.read()
-            print(f"    -> New Content of src/auth.py (from disk):\n{new_content}")
-
-        # Transition State
-        commit_hash = "abc123fakehash"
+        # Transition State (using real hash)
+        commit_hash = result.get("commit_hash", "manual_override")
         task = CodeChangeTaskFactory.transition_to_change_committed(task, commit_hash)
         print(f"    -> State: {type(task).__name__} | Commit: {task.commit_hash}")
 

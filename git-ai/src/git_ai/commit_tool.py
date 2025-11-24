@@ -3,24 +3,26 @@ import jsonpatch
 import os
 from typing import List, Dict, Any, Union, Optional
 from git_ai.utils import decode_pointer_to_file_path
+from git_ai.domain.git_repo import GitRepository
 
 def structured_commit_tool(
     patch: Union[List[Dict[str, Any]], str],
     file_context: Optional[Dict[str, str]] = None,
-    root_dir: Optional[str] = None
+    root_dir: Optional[str] = None,
+    commit_message: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Apply a JSON Patch to either a file context dictionary OR directly to the filesystem.
+    If root_dir is provided AND it is a git repo, it can optionally commit the changes.
 
     Args:
         patch (List[Dict] or str): The JSON Patch (RFC 6902).
         file_context (Dict[str, str], optional): In-memory context (legacy/testing mode).
         root_dir (str, optional): Root directory of the filesystem to apply changes to.
-                                  If provided, 'file_context' is ignored (or treated as read-only context).
+        commit_message (str, optional): If provided, and root_dir is a git repo, changes will be committed.
 
     Returns:
-        Dict[str, Any]: Result status. If in-memory, returns modified context.
-                        If filesystem, returns list of modified files.
+        Dict[str, Any]: Result status, modified files, and optionally 'commit_hash'.
     """
     if isinstance(patch, str):
         try:
@@ -28,12 +30,41 @@ def structured_commit_tool(
         except json.JSONDecodeError:
             return {"error": "Invalid JSON string for patch"}
 
+    # Apply changes
+    result = {}
     if root_dir:
-        return _apply_patch_to_filesystem(patch, root_dir)
+        patch_result = _apply_patch_to_filesystem(patch, root_dir)
+        if "error" in patch_result:
+            return patch_result
+        result.update(patch_result)
+
+        # Optional: Commit to Git
+        if commit_message:
+            try:
+                repo = GitRepository(root_dir)
+                modified_files = patch_result.get("modified_files", [])
+                # We commit all changes in the repo related to the patch or just everything?
+                # Ideally, we verify modified_files exist.
+                # For robustness, we let git handle adding untracked files or modifications.
+
+                # Note: `modified_files` contains relative paths like "src/main.py" or "src/main.py (deleted)".
+                # We should probably just stage all changes to be safe, or parse the list strictly.
+                # Let's Stage All (git add -A) for now to capture adds/removes reliably.
+
+                commit_hash = repo.commit_changes(commit_message)
+                result["commit_hash"] = commit_hash
+                result["commit_status"] = "success"
+            except Exception as e:
+                result["commit_status"] = f"failed: {str(e)}"
+                # We don't fail the whole operation if patch applied but commit failed,
+                # but we should probably warn.
+
     elif file_context is not None:
         return _apply_patch_in_memory(patch, file_context)
     else:
         return {"error": "Either file_context or root_dir must be provided."}
+
+    return result
 
 def _apply_patch_in_memory(patch, file_context):
     try:
@@ -48,9 +79,6 @@ def _apply_patch_in_memory(patch, file_context):
 def _apply_patch_to_filesystem(patch: List[Dict[str, Any]], root_dir: str) -> Dict[str, Any]:
     """
     Applies operations directly to files in root_dir.
-    Supports: add, remove, replace (replace file content).
-    Limitations: Move/Copy/Test on file level not fully implemented for simplicity in this iteration,
-                 or we map them to FS operations.
     """
     modified_files = []
 
@@ -70,15 +98,8 @@ def _apply_patch_to_filesystem(patch: List[Dict[str, Any]], root_dir: str) -> Di
 
             full_path = os.path.join(root_dir, rel_path)
 
-            # Security check: Ensure full_path is inside root_dir
-            # (decode_pointer checks for .., but let's be double safe with resolve)
+            # Security check
             try:
-                # Resolve paths
-                root_real = os.path.realpath(root_dir)
-                full_real = os.path.realpath(full_path)
-                # Note: full_real might not exist yet (for add), so we check parent or just generic prefix
-                # If file doesn't exist, realpath might essentially be os.path.abspath if generic
-                # Let's rely on common sense path checks
                 if not os.path.abspath(full_path).startswith(os.path.abspath(root_dir)):
                      raise ValueError(f"Path traversal attempt: {rel_path}")
             except Exception as e:
@@ -89,13 +110,9 @@ def _apply_patch_to_filesystem(patch: List[Dict[str, Any]], root_dir: str) -> Di
                 if value is None:
                      raise ValueError(f"Missing 'value' for {operation}")
 
-                # Ensure parent dir exists
                 os.makedirs(os.path.dirname(full_path), exist_ok=True)
-
-                # Write file
                 with open(full_path, "w", encoding="utf-8") as f:
                     f.write(value)
-
                 modified_files.append(rel_path)
 
             elif operation == "remove":
@@ -104,9 +121,6 @@ def _apply_patch_to_filesystem(patch: List[Dict[str, Any]], root_dir: str) -> Di
                     modified_files.append(rel_path + " (deleted)")
 
             else:
-                # move, copy, test are harder on FS without reading first.
-                # 'test' could check content.
-                # For now, we support the core "Write Path" (replace/add).
                 raise NotImplementedError(f"Filesystem operation '{operation}' not supported yet.")
 
         return {"status": "success", "modified_files": modified_files}

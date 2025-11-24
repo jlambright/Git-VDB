@@ -13,7 +13,8 @@ dependencies = [
     "pydantic",
     "requests",
     "jsonpatch",
-    "pyyaml"
+    "pyyaml",
+    "GitPython"
 ]
 
 [project.scripts]
