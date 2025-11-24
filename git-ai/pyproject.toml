@@ -1,0 +1,23 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "git-ai"
+version = "0.1.0"
+description = "AI-powered git CLI"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "click",
+    "pydantic",
+    "requests",
+    "jsonpatch",
+    "pyyaml"
+]
+
+[project.scripts]
+git-ai = "git_ai.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/git_ai"]
