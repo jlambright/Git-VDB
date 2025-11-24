@@ -9,7 +9,8 @@ def structured_commit_tool(
     patch: Union[List[Dict[str, Any]], str],
     file_context: Optional[Dict[str, str]] = None,
     root_dir: Optional[str] = None,
-    commit_message: Optional[str] = None
+    commit_message: Optional[str] = None,
+    amend: bool = False
 ) -> Dict[str, Any]:
     """
     Apply a JSON Patch to either a file context dictionary OR directly to the filesystem.
@@ -20,6 +21,7 @@ def structured_commit_tool(
         file_context (Dict[str, str], optional): In-memory context (legacy/testing mode).
         root_dir (str, optional): Root directory of the filesystem to apply changes to.
         commit_message (str, optional): If provided, and root_dir is a git repo, changes will be committed.
+        amend (bool): If True, amends the previous commit instead of creating a new one.
 
     Returns:
         Dict[str, Any]: Result status, modified files, and optionally 'commit_hash'.
@@ -42,24 +44,22 @@ def structured_commit_tool(
         if commit_message:
             try:
                 repo = GitRepository(root_dir)
-                modified_files = patch_result.get("modified_files", [])
-                # We commit all changes in the repo related to the patch or just everything?
-                # Ideally, we verify modified_files exist.
-                # For robustness, we let git handle adding untracked files or modifications.
 
-                # Note: `modified_files` contains relative paths like "src/main.py" or "src/main.py (deleted)".
-                # We should probably just stage all changes to be safe, or parse the list strictly.
-                # Let's Stage All (git add -A) for now to capture adds/removes reliably.
+                # Commit or Amend
+                if amend:
+                    commit_hash = repo.amend_changes(commit_message)
+                else:
+                    commit_hash = repo.commit_changes(commit_message)
 
-                commit_hash = repo.commit_changes(commit_message)
                 result["commit_hash"] = commit_hash
                 result["commit_status"] = "success"
+                result["amended"] = amend
             except Exception as e:
                 result["commit_status"] = f"failed: {str(e)}"
-                # We don't fail the whole operation if patch applied but commit failed,
-                # but we should probably warn.
 
     elif file_context is not None:
+        if amend:
+            return {"error": "Amend not supported in in-memory mode."}
         return _apply_patch_in_memory(patch, file_context)
     else:
         return {"error": "Either file_context or root_dir must be provided."}

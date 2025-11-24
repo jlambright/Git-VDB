@@ -14,7 +14,8 @@ dependencies = [
     "requests",
     "jsonpatch",
     "pyyaml",
-    "GitPython"
+    "GitPython",
+    "fastmcp"
 ]
 
 [project.scripts]
