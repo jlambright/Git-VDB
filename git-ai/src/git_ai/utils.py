@@ -2,6 +2,8 @@ import json
 import jsonpatch
 from pydantic import BaseModel, ValidationError, ConfigDict, Field
 from typing import List, Dict, Any, Union
+import re
+import os
 
 class JSONPatchOp(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
@@ -35,6 +37,43 @@ def validate_and_format_patch(raw_patch: Union[str, List[Dict[str, Any]]]) -> Li
         return validated_patch
     except ValidationError as e:
         raise ValueError(f"Patch schema validation failed: {e}")
+
+def encode_file_path_to_pointer(path: str) -> str:
+    """
+    Encodes a file path into a JSON Pointer.
+    '/' -> '~1', '~' -> '~0'.
+    Prefixes with '/' to make it a valid pointer to a root key.
+    """
+    # Standard JSON Pointer escaping
+    # First escape ~ to ~0, then / to ~1
+    escaped = path.replace("~", "~0").replace("/", "~1")
+    return "/" + escaped
+
+def decode_pointer_to_file_path(pointer: str) -> str:
+    """
+    Decodes a JSON Pointer back to a file path.
+    Enforces that the pointer starts with '/'.
+    Prevents directory traversal attacks (e.g. ../).
+    """
+    if not pointer.startswith("/"):
+        raise ValueError(f"Invalid JSON Pointer: {pointer} (must start with /)")
+
+    # Remove leading /
+    inner = pointer[1:]
+
+    # Decode ~1 to /, ~0 to ~
+    decoded = inner.replace("~1", "/").replace("~0", "~")
+
+    # Security Check: Traversal
+    # Normalize path
+    # We just check for '..' components in a naive way first
+    # os.path.normpath logic might resolve '..' but we want to know if it goes 'up' relative to a root.
+    # Simple check: do not allow '..' segments.
+    parts = decoded.split("/")
+    if ".." in parts:
+        raise ValueError(f"Path traversal detected in pointer: {pointer}")
+
+    return decoded
 
 def generate_patch_prompt(task_description: str, context: str) -> str:
     """

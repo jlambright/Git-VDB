@@ -18,20 +18,14 @@ class CodeChangeTask(BaseModel):
         Creates a new instance of target_cls using data from self,
         updated with kwargs. Used for State Transitions.
         """
-        # Get current data
-        current_data = self.model_dump()
+        # Get current data, explicitly excluding 'status' as it is controlled by the target subclass
+        current_data = self.model_dump(exclude={'status'})
 
         # Update with new data
         current_data.update(kwargs)
 
-        # Actually, best way is to construct using fields present in target.
+        # Construct using fields present in target.
         target_fields = target_cls.model_fields.keys()
-
-        # We must NOT copy the 'status' field from self, as the target class has its own literal value.
-        # If we copy 'TaskRequested' status to 'ContextRetrieved' class, it fails validation.
-        if 'status' in current_data:
-            del current_data['status']
-
         init_data = {k: v for k, v in current_data.items() if k in target_fields}
 
         return target_cls(**init_data)

@@ -61,6 +61,11 @@ def startup_event():
 def read_root():
     return {"message": "Indexer Service"}
 
+@app.get("/health")
+def health_check():
+    """Health check endpoint for Kubernetes probes."""
+    return {"status": "ok"}
+
 @app.post("/index")
 def index_documents(request: IndexRequest):
     embeddings = get_model().encode(request.texts)

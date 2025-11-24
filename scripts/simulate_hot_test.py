@@ -4,6 +4,8 @@ import time
 import subprocess
 import requests
 import json
+import tempfile
+import shutil
 from pathlib import Path
 
 # Add src directories to python path
@@ -73,73 +75,100 @@ def seed_indexer():
     else:
         raise RuntimeError(f"Failed to index: {resp.text}")
 
-def simulate_agent_workflow():
-    print("\n=== STARTING AGENT SIMULATION ===\n")
+def create_temp_codebase():
+    """Creates a temporary directory with the fake codebase."""
+    temp_dir = tempfile.mkdtemp()
+    print(f"[*] Created temporary codebase at: {temp_dir}")
 
-    # 1. Define Task
-    query = "Improve error handling in login function"
-    print(f"[1] User Request: '{query}'")
+    # Create structure
+    os.makedirs(os.path.join(temp_dir, "src"), exist_ok=True)
 
-    task = CodeChangeTaskFactory.create_initial(query)
-    print(f"    -> State: {type(task).__name__} | ID: {task.task_id}")
-
-    # 2. Retrieve Context
-    print(f"[2] Agent 'Thinking': Searching for context...")
-    os.environ["INDEXER_URL"] = INDEXER_URL # Configure tool
-
-    # Agent decides to search for 'login error'
-    search_query = "login function error handling"
-    results = semantic_search_tool(search_query)
-    print(f"    -> Found {len(results)} relevant code snippets.")
-    for r in results:
-        print(f"       - {r['payload']['filename']} (Score: {r['score']:.2f})")
-
-    # Transition State
-    task = CodeChangeTaskFactory.transition_to_context_retrieved(task, results)
-    print(f"    -> State: {type(task).__name__}")
-
-    # 3. Generate Patch (Mocking LLM)
-    print(f"[3] Agent 'Thinking': Generating JSON Patch...")
-
-    # Mock LLM Output based on context found (src/auth.py)
-    # We want to change ValueError to PermissionError for demo
-    patch = [
-        {
-            "op": "replace",
-            "path": "/src~1auth.py", # Note escaping
-            "value": "def login(user, password):\n    if not password:\n        raise PermissionError('Access Denied')\n    print('Logged in')"
-        }
-    ]
-    print(f"    -> Generated Patch: {json.dumps(patch, indent=2)}")
-
-    task = CodeChangeTaskFactory.transition_to_patch_generated(task, patch)
-    print(f"    -> State: {type(task).__name__}")
-
-    # 4. Apply Commit
-    print(f"[4] Agent 'Acting': Applying Patch to Files...")
-
-    # Mock File System (In reality, this would read from disk)
-    file_system = {
+    files = {
         "src/main.py": "def hello():\n    print('Hello World')",
         "src/auth.py": "def login(user, password):\n    if not password:\n        raise ValueError('No password')\n    print('Logged in')",
         "README.md": "# README\nThis is a sample project."
     }
 
-    result = structured_commit_tool(task.patch, file_system)
+    for path, content in files.items():
+        with open(os.path.join(temp_dir, path), "w") as f:
+            f.write(content)
 
-    if "error" in result:
-        print(f"    [!] Error applying patch: {result['error']}")
-        return
+    return temp_dir
 
-    print("    -> Patch Applied Successfully.")
-    print(f"    -> New Content of src/auth.py:\n{result['modified_context']['src/auth.py']}")
+def simulate_agent_workflow():
+    # Setup temporary filesystem
+    temp_root = create_temp_codebase()
 
-    # Transition State
-    commit_hash = "abc123fakehash"
-    task = CodeChangeTaskFactory.transition_to_change_committed(task, commit_hash)
-    print(f"    -> State: {type(task).__name__} | Commit: {task.commit_hash}")
+    try:
+        print("\n=== STARTING AGENT SIMULATION ===\n")
 
-    print("\n=== SIMULATION COMPLETE ===")
+        # 1. Define Task
+        query = "Improve error handling in login function"
+        print(f"[1] User Request: '{query}'")
+
+        task = CodeChangeTaskFactory.create_initial(query)
+        print(f"    -> State: {type(task).__name__} | ID: {task.task_id}")
+
+        # 2. Retrieve Context
+        print(f"[2] Agent 'Thinking': Searching for context...")
+        os.environ["INDEXER_URL"] = INDEXER_URL # Configure tool
+
+        # Agent decides to search for 'login error'
+        search_query = "login function error handling"
+        results = semantic_search_tool(search_query)
+        print(f"    -> Found {len(results)} relevant code snippets.")
+        for r in results:
+            print(f"       - {r['payload']['filename']} (Score: {r['score']:.2f})")
+
+        # Transition State
+        task = CodeChangeTaskFactory.transition_to_context_retrieved(task, results)
+        print(f"    -> State: {type(task).__name__}")
+
+        # 3. Generate Patch (Mocking LLM)
+        print(f"[3] Agent 'Thinking': Generating JSON Patch...")
+
+        # Mock LLM Output based on context found (src/auth.py)
+        # We want to change ValueError to PermissionError for demo
+        patch = [
+            {
+                "op": "replace",
+                "path": "/src~1auth.py", # Note escaping
+                "value": "def login(user, password):\n    if not password:\n        raise PermissionError('Access Denied')\n    print('Logged in')"
+            }
+        ]
+        print(f"    -> Generated Patch: {json.dumps(patch, indent=2)}")
+
+        task = CodeChangeTaskFactory.transition_to_patch_generated(task, patch)
+        print(f"    -> State: {type(task).__name__}")
+
+        # 4. Apply Commit (Filesystem Mode)
+        print(f"[4] Agent 'Acting': Applying Patch to Filesystem ({temp_root})...")
+
+        # Using root_dir argument for the new Scalable Tool
+        result = structured_commit_tool(task.patch, root_dir=temp_root)
+
+        if "error" in result:
+            print(f"    [!] Error applying patch: {result['error']}")
+            return
+
+        print("    -> Patch Applied Successfully.")
+
+        # Verify file content on disk
+        with open(os.path.join(temp_root, "src/auth.py"), "r") as f:
+            new_content = f.read()
+            print(f"    -> New Content of src/auth.py (from disk):\n{new_content}")
+
+        # Transition State
+        commit_hash = "abc123fakehash"
+        task = CodeChangeTaskFactory.transition_to_change_committed(task, commit_hash)
+        print(f"    -> State: {type(task).__name__} | Commit: {task.commit_hash}")
+
+        print("\n=== SIMULATION COMPLETE ===")
+
+    finally:
+        # Cleanup
+        print(f"[*] Cleaning up {temp_root}")
+        shutil.rmtree(temp_root)
 
 if __name__ == "__main__":
     service_process = None
