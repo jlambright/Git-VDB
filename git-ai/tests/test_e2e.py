@@ -33,9 +33,13 @@ def test_e2e_flow():
     task = CodeChangeTaskFactory.transition_to_patch_generated(task, valid_patch)
     assert isinstance(task, PatchGenerated)
 
-    # 4. Commit/Apply Change
-    # We apply the patch to the "file context"
-    result = structured_commit_tool(task.patch, initial_file_content)
+    # 4. Commit/Apply Change (In-memory mode)
+    result = structured_commit_tool(
+        patch=task.patch,
+        vdb_id="dummy_id_for_test",
+        commit_message="fix: typo in README",
+        file_context=initial_file_content
+    )
 
     assert "error" not in result
     modified_context = result["modified_context"]
@@ -55,6 +59,11 @@ def test_json_pointer_escaping():
     ]
 
     valid_patch = validate_and_format_patch(raw_patch)
-    result = structured_commit_tool(valid_patch, initial_context)
+    result = structured_commit_tool(
+        patch=valid_patch,
+        vdb_id="dummy_id_for_test",
+        commit_message="feat: update main.py",
+        file_context=initial_context
+    )
 
     assert result["modified_context"]["src/app/main.py"] == "print('new')"

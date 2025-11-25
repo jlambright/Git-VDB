@@ -20,16 +20,22 @@ def indexer_service():
     env["QDRANT_HOST"] = "localhost"
     env["QDRANT_PORT"] = "6333" # Default, but should be ignored if location is :memory:
 
-    # Check if QDRANT_LOCATION is being respected by indexer-service/src/indexer_service/main.py
-    # In main.py:
-    # if os.environ.get("QDRANT_LOCATION") == ":memory:":
-    #      client = QdrantClient(location=":memory:")
+    # Add src directories to PYTHONPATH for the subprocess
+    git_ai_src = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'git-ai', 'src'))
+    indexer_src = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'indexer-service', 'src'))
+    if "PYTHONPATH" in env:
+        env["PYTHONPATH"] = f"{git_ai_src}:{indexer_src}:{env['PYTHONPATH']}"
+    else:
+        env["PYTHONPATH"] = f"{git_ai_src}:{indexer_src}"
+
 
     # Start the service in the background
+    uvicorn_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'venv', 'bin', 'uvicorn'))
+    main_app_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'indexer-service', 'src', 'indexer_service', 'main.py'))
     process = subprocess.Popen(
-        ["uvicorn", "indexer_service.main:app", "--host", INDEXER_HOST, "--port", str(INDEXER_PORT)],
+        [uvicorn_path, "main:app", "--host", INDEXER_HOST, "--port", str(INDEXER_PORT)],
         env=env,
-        cwd="indexer-service/src", # Adjust cwd to find the module
+        cwd=os.path.dirname(main_app_path),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE
     )
