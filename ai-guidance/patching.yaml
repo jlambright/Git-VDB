@@ -1,0 +1,36 @@
+# Specific rules for Code Modification and Patching
+include:
+  - "core.yaml"  # Conceptual include, showing dependency
+
+patching_rules:
+  json_patch_rfc6902: &json-patch
+    escapes:
+      "~": "~0"
+      "/": "~1"
+    operations:
+      - op: "add"
+      - op: "remove"
+      - op: "replace"
+      - op: "move"
+      - op: "copy"
+      - op: "test"
+
+  file_system_ops:
+    root_dir_handling:
+      description: "All paths are relative to the repository root."
+      warning: "Do not attempt to access files outside the repo boundary."
+
+agent_tasks:
+  generating_patches:
+    guidance: >
+      When generating a patch, you must strictly follow RFC 6902.
+      Use the escape sequences defined in *json-patch.
+    examples:
+      valid_path: "/src~1main.py"
+      invalid_path: "/src/main.py"
+
+  verifying_changes:
+    steps:
+      - "Apply patch to in-memory context or temporary file."
+      - "Run verification/tests."
+      - "Commit only if successful."
