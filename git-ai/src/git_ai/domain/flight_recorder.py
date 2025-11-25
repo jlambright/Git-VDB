@@ -3,10 +3,10 @@ from pydantic import BaseModel, Field, ConfigDict
 import ulid
 import datetime
 
+# 1. Base Class (The Core OOI Structure)
 class FlightRecord(BaseModel):
     """
-    The atomic unit of the Vector Database index, representing a single
-    thought, action, or observation in the agent's execution loop.
+    The base Object of Importance for a single recorded event.
     """
     model_config = ConfigDict(frozen=True)
 
@@ -15,32 +15,34 @@ class FlightRecord(BaseModel):
     session_id: str
     timestamp: str = Field(default_factory=lambda: datetime.datetime.now(datetime.timezone.utc).isoformat())
 
-    # Type Discriminator
-    type: Literal["THOUGHT", "ACTION", "OBSERVATION", "FEEDBACK"]
-
     # The "Why" - Natural language description of the goal.
-    # This is the primary target for semantic search.
-    intent: str = Field(embedding_target=True)
+    intent: str = Field(json_schema_extra={"embedding_target": True})
 
     # The "Evidence" - Verification layer providing context for the action.
     evidence: List[Dict[str, Any]] = Field(default_factory=list)
 
-    # The "State" - Linkage to the Git repository state.
-    # This is nullable because THOUGHT, OBSERVATION, or FEEDBACK records
-    # may not correspond to a specific code change.
-    git_hash: Optional[str] = None
-
-    # The "Train" - RLHF (Reinforcement Learning from Human Feedback) labels.
-    # Starts as PENDING and is updated upon review.
+    # The "Train" - RLHF labels.
     outcome: Literal["PENDING", "ACCEPTED", "REJECTED"] = "PENDING"
 
-    def to_ingestion_record(self) -> Dict[str, Any]:
-        """
-        Prepares the record for ingestion into the Vector DB.
-        This is where we would flatten the structure or select specific
-        fields for different parts of the VDB (e.g., payload vs. vector).
-        """
-        record = self.model_dump(by_alias=True)
-        # In a real implementation, you might transform the 'intent' field
-        # into a vector here before sending it to the VDB.
-        return record
+# 2. State Subclasses (The Discriminated Union Members)
+
+class ThoughtRecord(FlightRecord):
+    """A record of the agent's internal reasoning."""
+    type: Literal['THOUGHT'] = 'THOUGHT'
+
+class ActionRecord(FlightRecord):
+    """A record of a specific action taken by the agent (e.g., a commit)."""
+    type: Literal['ACTION'] = 'ACTION'
+    git_hash: str  # The git_hash is REQUIRED for an action.
+
+class ObservationRecord(FlightRecord):
+    """A record of an observation from the environment (e.g., a tool's output)."""
+    type: Literal['OBSERVATION'] = 'OBSERVATION'
+
+class FeedbackRecord(FlightRecord):
+    """A record of feedback from a human or supervisor."""
+    type: Literal['FEEDBACK'] = 'FEEDBACK'
+
+
+# 3. The OOI Union (The Complete Type Definition)
+FlightRecordState = Union[ThoughtRecord, ActionRecord, ObservationRecord, FeedbackRecord]

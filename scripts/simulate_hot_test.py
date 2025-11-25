@@ -7,6 +7,7 @@ import json
 import tempfile
 import shutil
 from pathlib import Path
+import ulid
 
 # Add src directories to python path
 sys.path.append(str(Path(__file__).parent.parent / "git-ai/src"))
@@ -152,8 +153,17 @@ def simulate_agent_workflow():
         # 4. Apply Commit (Filesystem + Git)
         print(f"[4] Agent 'Acting': Applying Patch & Committing to Git ({temp_root})...")
 
+        # Per directive, generate ULID *before* action
+        vdb_id = str(ulid.new())
+        print(f"    -> Generated Git-VDB-ID: {vdb_id}")
+
         commit_msg = "fix: improve login error handling"
-        result = structured_commit_tool(task.patch, root_dir=temp_root, commit_message=commit_msg)
+        result = structured_commit_tool(
+            patch=task.patch,
+            root_dir=temp_root,
+            commit_message=commit_msg,
+            vdb_id=vdb_id
+        )
 
         if "error" in result:
             print(f"    [!] Error: {result['error']}")
@@ -161,12 +171,29 @@ def simulate_agent_workflow():
 
         print("    -> Patch Applied.")
         if "commit_hash" in result:
-             print(f"    -> Git Commit Successful: {result['commit_hash']}")
+            commit_hash = result['commit_hash']
+            print(f"    -> Git Commit Successful: {commit_hash}")
+
+            # Verification Step
+            print("[5] Verifying commit message...")
+            actual_msg = subprocess.check_output(
+                ["git", "log", "-1", "--pretty=%B"],
+                cwd=temp_root
+            ).decode().strip()
+
+            expected_footer = f"Git-VDB-ID: {vdb_id}"
+            if expected_footer in actual_msg:
+                print("    -> SUCCESS: VDB ID found in commit message.")
+            else:
+                print(f"    -> FAILURE: VDB ID not found in commit message!")
+                print(f"       Expected footer: {expected_footer}")
+                print(f"       Actual message:\n---\n{actual_msg}\n---")
+                raise AssertionError("Commit message verification failed")
         else:
-             print(f"    -> [!] Git Commit Failed: {result.get('commit_status')}")
+            print(f"    -> [!] Git Commit Failed: {result.get('commit_status')}")
+            return
 
         # Transition State (using real hash)
-        commit_hash = result.get("commit_hash", "manual_override")
         task = CodeChangeTaskFactory.transition_to_change_committed(task, commit_hash)
         print(f"    -> State: {type(task).__name__} | Commit: {task.commit_hash}")
 
