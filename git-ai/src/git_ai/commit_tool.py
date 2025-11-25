@@ -7,25 +7,30 @@ from git_ai.domain.git_repo import GitRepository
 
 def structured_commit_tool(
     patch: Union[List[Dict[str, Any]], str],
-    file_context: Optional[Dict[str, str]] = None,
+    vdb_id: str,
+    commit_message: str,
     root_dir: Optional[str] = None,
-    commit_message: Optional[str] = None,
-    amend: bool = False
+    file_context: Optional[Dict[str, str]] = None,
+    amend: bool = False # Kept for signature compatibility, but will be enforced as False
 ) -> Dict[str, Any]:
     """
-    Apply a JSON Patch to either a file context dictionary OR directly to the filesystem.
-    If root_dir is provided AND it is a git repo, it can optionally commit the changes.
+    Apply a JSON Patch and commit it with a VDB ID footer.
+    Note: `amend` is disallowed by the GIT-VDB ARCHITECTURAL DIRECTIVE.
 
     Args:
         patch (List[Dict] or str): The JSON Patch (RFC 6902).
-        file_context (Dict[str, str], optional): In-memory context (legacy/testing mode).
+        vdb_id (str): The ULID for the Flight Record, required for the commit footer.
+        commit_message (str): The commit message.
         root_dir (str, optional): Root directory of the filesystem to apply changes to.
-        commit_message (str, optional): If provided, and root_dir is a git repo, changes will be committed.
-        amend (bool): If True, amends the previous commit instead of creating a new one.
+        file_context (Dict[str, str], optional): In-memory context (legacy/testing mode).
+        amend (bool): Disallowed. Will raise an error if True.
 
     Returns:
-        Dict[str, Any]: Result status, modified files, and optionally 'commit_hash'.
+        Dict[str, Any]: Result status, modified files, and 'commit_hash'.
     """
+    if amend:
+        return {"error": "Amending commits is disallowed by the GIT-VDB directive."}
+
     if isinstance(patch, str):
         try:
             patch = json.loads(patch)
@@ -34,35 +39,32 @@ def structured_commit_tool(
 
     # Apply changes
     result = {}
-    if root_dir:
-        patch_result = _apply_patch_to_filesystem(patch, root_dir)
-        if "error" in patch_result:
-            return patch_result
-        result.update(patch_result)
+    # This tool is primarily for filesystem operations and commits.
+    # In-memory mode is a legacy feature and does not support commits.
+    if not root_dir:
+        if file_context is not None:
+            return _apply_patch_in_memory(patch, file_context)
+        return {"error": "root_dir must be provided for git operations."}
 
-        # Optional: Commit to Git
-        if commit_message:
-            try:
-                repo = GitRepository(root_dir)
+    result = {}
+    patch_result = _apply_patch_to_filesystem(patch, root_dir)
+    if "error" in patch_result:
+        return patch_result
+    result.update(patch_result)
 
-                # Commit or Amend
-                if amend:
-                    commit_hash = repo.amend_changes(commit_message)
-                else:
-                    commit_hash = repo.commit_changes(commit_message)
+    # Commit to Git
+    try:
+        repo = GitRepository(root_dir)
 
-                result["commit_hash"] = commit_hash
-                result["commit_status"] = "success"
-                result["amended"] = amend
-            except Exception as e:
-                result["commit_status"] = f"failed: {str(e)}"
+        # Format commit message with VDB ID footer
+        full_commit_message = f"{commit_message}\n\nGit-VDB-ID: {vdb_id}"
 
-    elif file_context is not None:
-        if amend:
-            return {"error": "Amend not supported in in-memory mode."}
-        return _apply_patch_in_memory(patch, file_context)
-    else:
-        return {"error": "Either file_context or root_dir must be provided."}
+        commit_hash = repo.commit_changes(full_commit_message)
+
+        result["commit_hash"] = commit_hash
+        result["commit_status"] = "success"
+    except Exception as e:
+        result["commit_status"] = f"failed: {str(e)}"
 
     return result
 
@@ -108,9 +110,13 @@ def _apply_patch_to_filesystem(patch: List[Dict[str, Any]], root_dir: str) -> Di
             if operation == "replace" or operation == "add":
                 value = op.get("value")
                 if value is None:
-                     raise ValueError(f"Missing 'value' for {operation}")
+                    raise ValueError(f"Missing 'value' for {operation}")
 
-                os.makedirs(os.path.dirname(full_path), exist_ok=True)
+                # Ensure the directory exists before writing the file
+                dir_name = os.path.dirname(full_path)
+                if dir_name:
+                    os.makedirs(dir_name, exist_ok=True)
+
                 with open(full_path, "w", encoding="utf-8") as f:
                     f.write(value)
                 modified_files.append(rel_path)

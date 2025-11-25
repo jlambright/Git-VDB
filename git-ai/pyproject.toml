@@ -28,7 +28,8 @@ dependencies = [
     "jsonpatch",
     "pyyaml",
     "GitPython",
-    "fastmcp"
+    "fastmcp",
+    "ulid-py"
 ]
 
 [project.urls]
