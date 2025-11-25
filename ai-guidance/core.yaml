@@ -1,0 +1,50 @@
+# Core definitions and shared concepts for Git AI
+definitions:
+  # Technology Stack
+  stack: &tech-stack
+    language: "Python 3.9+"
+    frameworks:
+      - "FastAPI (indexer-service)"
+      - "Pydantic V2 (data validation)"
+      - "FastMCP (MCP server)"
+    infrastructure:
+      - "Docker & Docker Compose"
+      - "Qdrant (Vector DB)"
+
+  # Architectural Patterns
+  patterns:
+    ooi: &ooi-pattern
+      name: "Object of Importance (OOI)"
+      description: >
+        A pattern ensuring immutable state management through strictly typed objects.
+        State transitions are handled explicitly via factory methods.
+      constraints:
+        - "Models MUST use `ConfigDict(frozen=True)`."
+        - "State mutations MUST be done via `copy_with` (intra-state) or `copy_to` (inter-state)."
+        - "No direct property setters allowed."
+
+    mcp: &mcp-protocol
+      name: "Model Context Protocol"
+      description: "Standard for connecting AI models to external tools."
+      tools:
+        - "search_code: Semantic search via Indexer."
+        - "apply_commit: Apply changes via JSON Patch."
+
+  # Coding Standards
+  standards: &coding-standards
+    formatting: "Black (line-length: 88)"
+    import_sorting: "isort"
+    type_checking: "mypy (strict)"
+    testing: "pytest"
+
+# Context for AI Agents
+ai_context:
+  project_profile:
+    <<: *tech-stack
+    primary_pattern: *ooi-pattern
+
+  development_rules:
+    style: *coding-standards
+    critical_instruction: >
+      Always verify the `AUDIT_REPORT.md` before suggesting architectural changes.
+      Ensure all file paths in JSON Pointers are properly escaped (RFC 6902).
