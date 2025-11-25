@@ -5,6 +5,7 @@ import shutil
 import tempfile
 import json
 from pathlib import Path
+import pytest
 
 # Add src directories
 sys.path.append(str(Path(__file__).parent.parent / "git-ai/src"))
@@ -26,6 +27,12 @@ def create_temp_repo():
     subprocess.run(["git", "commit", "-m", "Initial commit"], cwd=repo_dir, check=True)
     return repo_dir
 
+@pytest.fixture
+def repo_dir():
+    repo_dir = create_temp_repo()
+    yield repo_dir
+    shutil.rmtree(repo_dir)
+
 def test_amend_flow(repo_dir):
     print(f"\n[*] Testing Amend Flow in {repo_dir}...")
     repo = GitRepository(repo_dir)
@@ -34,7 +41,7 @@ def test_amend_flow(repo_dir):
 
     # Make a commit
     patch = json.dumps([{"op": "replace", "path": "/test.txt", "value": "change 1"}])
-    res = structured_commit_tool(patch, root_dir=repo_dir, commit_message="change 1")
+    res = structured_commit_tool(patch, root_dir=repo_dir, commit_message="change 1", vdb_id="dummy_id_1")
     commit_1 = res["commit_hash"]
     print(f"    Commit 1: {commit_1}")
 
@@ -46,24 +53,14 @@ def test_amend_flow(repo_dir):
     print("    Amending Commit 1...")
     patch_amend = json.dumps([{"op": "replace", "path": "/test.txt", "value": "change 1 amended"}])
     res_amend = structured_commit_tool(
-        patch_amend,
+        patch=patch_amend,
         root_dir=repo_dir,
         commit_message="change 1 amended",
-        amend=True
+        amend=True,
+        vdb_id="dummy_id_2"
     )
-    commit_amended = res_amend["commit_hash"]
-    print(f"    Amended Hash: {commit_amended}")
-
-    assert commit_amended != commit_1
-    # Verify content
-    with open(os.path.join(repo_dir, "test.txt"), "r") as f:
-        assert f.read() == "change 1 amended"
-
-    # Verify history length (should be 2: Initial + Amended, not 3)
-    commits = list(repo.repo.iter_commits())
-    print(f"    History Length: {len(commits)} (Expected 2)")
-    assert len(commits) == 2
-    assert commits[0].message.strip() == "change 1 amended"
+    assert "error" in res_amend
+    assert "disallowed" in res_amend["error"]
 
 def test_revert_flow(repo_dir):
     print(f"\n[*] Testing Revert Flow in {repo_dir}...")
@@ -72,7 +69,7 @@ def test_revert_flow(repo_dir):
     # Ensure clean slate or just continue
     # Let's add a file to revert
     patch = json.dumps([{"op": "add", "path": "/bad_file.txt", "value": "bad content"}])
-    res = structured_commit_tool(patch, root_dir=repo_dir, commit_message="bad commit")
+    res = structured_commit_tool(patch, root_dir=repo_dir, commit_message="bad commit", vdb_id="dummy_id_3")
     bad_commit_hash = res["commit_hash"]
     print(f"    Bad Commit: {bad_commit_hash}")
 

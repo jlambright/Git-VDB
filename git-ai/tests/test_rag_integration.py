@@ -1,64 +1,30 @@
 import os
-import subprocess
-import time
-import requests
 import pytest
-import signal
+from fastapi.testclient import TestClient
 from git_ai.tools import semantic_search_tool
 
-# Constants
-INDEXER_HOST = "localhost"
-INDEXER_PORT = 8001  # Use a different port than default to avoid conflict if running
-INDEXER_URL = f"http://{INDEXER_HOST}:{INDEXER_PORT}"
+# Since we are using TestClient, we need to make sure the indexer_service is in the PYTHONPATH
+# This is usually handled by the pytest configuration, but we can add it explicitly if needed
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / 'indexer-service' / 'src'))
+
+# Now we can import the app
+from indexer_service.main import app
+
+# Set environment variables for in-memory Qdrant *before* the client is created
+os.environ["QDRANT_LOCATION"] = ":memory:"
 
 @pytest.fixture(scope="module")
-def indexer_service():
-    """Starts the indexer service with in-memory Qdrant."""
-    env = os.environ.copy()
-    env["QDRANT_LOCATION"] = ":memory:"  # Ensure we use in-memory Qdrant for tests
-    env["PORT"] = str(INDEXER_PORT)
-    env["QDRANT_HOST"] = "localhost"
-    env["QDRANT_PORT"] = "6333" # Default, but should be ignored if location is :memory:
+def test_client():
+    """Create a TestClient instance for the indexer service."""
+    with TestClient(app) as client:
+        yield client
 
-    # Check if QDRANT_LOCATION is being respected by indexer-service/src/indexer_service/main.py
-    # In main.py:
-    # if os.environ.get("QDRANT_LOCATION") == ":memory:":
-    #      client = QdrantClient(location=":memory:")
-
-    # Start the service in the background
-    process = subprocess.Popen(
-        ["uvicorn", "indexer_service.main:app", "--host", INDEXER_HOST, "--port", str(INDEXER_PORT)],
-        env=env,
-        cwd="indexer-service/src", # Adjust cwd to find the module
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE
-    )
-
-    # Wait for the service to be ready
-    for _ in range(30):
-        try:
-            requests.get(INDEXER_URL)
-            break
-        except requests.ConnectionError:
-            time.sleep(1)
-    else:
-        process.terminate()
-        stdout, stderr = process.communicate()
-        pytest.fail(f"Indexer service failed to start:\nStdout: {stdout.decode()}\nStderr: {stderr.decode()}")
-
-    yield process
-
-    # Cleanup
-    # Send SIGTERM first
-    process.terminate()
-    try:
-        process.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        process.kill()
-
-def test_semantic_search_integration(indexer_service):
-    # Set environment variable for the tool
-    os.environ["INDEXER_URL"] = INDEXER_URL
+def test_semantic_search_integration(test_client):
+    # The TestClient will make requests to this URL, so we need to set it for the tool
+    # Even though it's not a real server, the tool needs a URL to make the request to the TestClient
+    os.environ["INDEXER_URL"] = "http://testserver"
 
     # 1. Index some data
     documents = [
@@ -70,12 +36,23 @@ def test_semantic_search_integration(indexer_service):
     ]
     metadatas = [{"source": "doc1"}, {"source": "doc2"}, {"source": "doc3"}, {"source": "doc4"}, {"source": "doc5"}]
 
-    response = requests.post(f"{INDEXER_URL}/index", json={"texts": documents, "metadatas": metadatas})
+    response = test_client.post("/index", json={"texts": documents, "metadatas": metadatas})
     assert response.status_code == 200
     assert response.json()["status"] == "success"
 
     # 2. Perform search using the tool
+    # We need to patch requests.post to redirect to the test_client
+    def mock_post(url, json, timeout=None):
+        return test_client.post(url, json=json)
+
+    import requests
+    original_post = requests.post
+    requests.post = mock_post
+
     results = semantic_search_tool("version control")
+
+    # Restore the original requests.post
+    requests.post = original_post
 
     # 3. Verify results
     assert len(results) > 0
