@@ -1,0 +1,43 @@
+# AGENTS.yaml - Entry point for AI Agents
+# This file aggregates guidance and rules for working on the Git AI codebase.
+
+version: 1.0
+last_updated: "2024"
+
+# References to detailed guidance files
+references:
+  core_definitions: "./ai-guidance/core.yaml"
+  patching_rules: "./ai-guidance/patching.yaml"
+
+# High-Level Summary for Context Window Efficiency
+summary:
+  architecture:
+    pattern: "Object of Importance (OOI) with Frozen Pydantic Models"
+    key_components:
+      - "git-ai (CLI/MCP)"
+      - "indexer-service (FastAPI/Qdrant)"
+
+  critical_rules:
+    - "Do not modify `status` fields directly; use factory transitions."
+    - "Escape all JSON pointers in patches (e.g. `/path~1to~1file`)."
+    - "Run `verify_mcp_server.py` after modifying tool logic."
+
+# Workflow Guidance
+workflows:
+  feature_development:
+    steps:
+      1. "Read `AUDIT_REPORT.md` to understand constraints."
+      2. "Define new state models if necessary (frozen)."
+      3. "Implement logic in `git-ai` or `indexer-service`."
+      4. "Add tests in `tests/` folders."
+      5. "Ensure type safety with `mypy`."
+
+  debugging:
+    tips:
+      - "Check `docker-compose logs` for service communication issues."
+      - "Use `verify_mcp_server.py` to test tool delegates in isolation."
+
+# Metadata
+maintainer_note: >
+  If you are an AI agent reading this, please prioritize the rules defined in
+  `ai-guidance/core.yaml` regarding the OOI pattern. It is the backbone of this system.
