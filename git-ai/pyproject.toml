@@ -32,7 +32,6 @@ dependencies = [
     "ulid-py",
     "fastapi",
     "httpx"
-]
 
 [project.urls]
 Homepage = "https://github.com/jlambright/Git-VDB"
