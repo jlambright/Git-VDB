@@ -5,8 +5,8 @@
 ;
 [subrepo]
 	remote = git@github.com:jlambright/Git-VDB.git
-	branch = integration
-	commit = c01b4c0884419569904936d2371eee8fa141b7ad
-	parent = ac0bd67e65defd5d57cbd0494bb00ca79ee84bf6
+	branch = main
+	commit = d2323e4abe00d071580700232a13bf500cd0a820
+	parent = ab5cbe493ef85678ff4e87795583ae2d0d082c78
 	method = rebase
 	cmdver = 0.4.9
