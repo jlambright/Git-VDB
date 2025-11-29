@@ -1,0 +1,27 @@
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"
+    environment:
+      - QDRANT__SERVICE__GRPC_PORT=6334
+
+  indexer-service:
+    build: ./indexer-service
+    ports:
+      - "8000:8000"
+    environment:
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+    depends_on:
+      - qdrant
+
+  git-ai:
+    build: ./git-ai
+    environment:
+      - INDEXER_URL=http://indexer-service:8000
+    depends_on:
+      - indexer-service
+    volumes:
+      - ./git-ai:/app
+      - ./.git:/app/.git
